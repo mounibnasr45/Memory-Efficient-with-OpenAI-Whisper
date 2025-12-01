@@ -70,7 +70,7 @@ You must have **FFmpeg** installed on your system.
 1.  Clone the repository:
 
     ```bash
-    git clone [YOUR_REPO_URL]
+    git clone https://github.com/mounibnasr45/Memory-Efficient-with-OpenAI-Whisper
     cd memory-efficient-whisper-streaming
     ```
 
