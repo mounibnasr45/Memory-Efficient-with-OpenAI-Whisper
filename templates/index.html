@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Whisper Streaming Benchmark</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1e1e1e;
+            color: #ffffff;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            box-sizing: border-box;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .container {
+            display: flex;
+            flex: 1;
+            gap: 20px;
+            min-height: 0; /* Important for nested flex scrolling */
+        }
+        .panel {
+            flex: 1;
+            background-color: #2d2d2d;
+            border-radius: 10px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid #3d3d3d;
+        }
+        .panel h2 {
+            margin-top: 0;
+            border-bottom: 1px solid #4d4d4d;
+            padding-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .status {
+            font-size: 0.8em;
+            padding: 4px 8px;
+            border-radius: 4px;
+            background-color: #444;
+        }
+        .status.connected { background-color: #28a745; }
+        .status.disconnected { background-color: #dc3545; }
+        
+        .transcript-box {
+            flex: 1;
+            background-color: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 5px;
+            padding: 15px;
+            overflow-y: auto;
+            font-family: 'Consolas', 'Courier New', monospace;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            margin-bottom: 15px;
+        }
+        .metrics {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            font-size: 0.9em;
+        }
+        .metric-card {
+            background-color: #333;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+        }
+        .metric-value {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #4db8ff;
+        }
+        .metric-label {
+            color: #aaa;
+        }
+        
+        #charts-container {
+            height: 200px;
+            background-color: #2d2d2d;
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 20px;
+            border: 1px solid #3d3d3d;
+        }
+        
+        button {
+            background-color: #007acc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: background-color 0.2s;
+        }
+        button:hover { background-color: #005999; }
+        button:disabled { background-color: #555; cursor: not-allowed; }
+        
+        .controls {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Whisper Streaming Performance Comparison</h1>
+    </header>
+
+    <div class="controls">
+        <button id="startBtn">Start Microphone & Benchmark</button>
+        <button id="stopBtn" disabled>Stop</button>
+    </div>
+
+    <div class="container">
+        <!-- Standard Panel -->
+        <div class="panel">
+            <h2>
+                Standard Whisper
+                <span id="status-std" class="status disconnected">Disconnected</span>
+            </h2>
+            <div class="transcript-box" id="transcript-std">Waiting for audio...</div>
+            <div class="metrics">
+                <div class="metric-card">
+                    <div class="metric-value" id="latency-std">0</div>
+                    <div class="metric-label">Latency (ms)</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value" id="tps-std">0</div>
+                    <div class="metric-label">Tokens/sec</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Optimized Panel -->
+        <div class="panel">
+            <h2>
+                Optimized (KV Cache)
+                <span id="status-opt" class="status disconnected">Disconnected</span>
+            </h2>
+            <div class="transcript-box" id="transcript-opt">Waiting for audio...</div>
+            <div class="metrics">
+                <div class="metric-card">
+                    <div class="metric-value" id="latency-opt">0</div>
+                    <div class="metric-label">Latency (ms)</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value" id="tps-opt">0</div>
+                    <div class="metric-label">Tokens/sec</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="charts-container">
+        <canvas id="latencyChart"></canvas>
+    </div>
+
+    <script>
+        let audioContext;
+        let processor;
+        let input;
+        let wsStd, wsOpt;
+        let isRecording = false;
+        
+        // Chart Setup
+        const ctx = document.getElementById('latencyChart').getContext('2d');
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Standard Latency (ms)',
+                    borderColor: '#ff6b6b',
+                    data: [],
+                    tension: 0.4
+                }, {
+                    label: 'Optimized Latency (ms)',
+                    borderColor: '#4db8ff',
+                    data: [],
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                scales: {
+                    x: { display: false },
+                    y: { 
+                        beginAtZero: true,
+                        grid: { color: '#444' },
+                        ticks: { color: '#aaa' }
+                    }
+                },
+                plugins: {
+                    legend: { labels: { color: '#fff' } }
+                }
+            }
+        });
+
+        function updateChart(stdVal, optVal) {
+            const now = new Date().toLocaleTimeString();
+            if (chart.data.labels.length > 50) {
+                chart.data.labels.shift();
+                chart.data.datasets[0].data.shift();
+                chart.data.datasets[1].data.shift();
+            }
+            chart.data.labels.push(now);
+            chart.data.datasets[0].data.push(stdVal);
+            chart.data.datasets[1].data.push(optVal);
+            chart.update();
+        }
+
+        async function startRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                audioContext = new AudioContext({ sampleRate: 16000 });
+                input = audioContext.createMediaStreamSource(stream);
+                processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+                // Connect WebSockets
+                wsStd = new WebSocket(`ws://${location.host}/ws/standard`);
+                wsOpt = new WebSocket(`ws://${location.host}/ws/optimized`);
+
+                setupWebSocket(wsStd, 'std');
+                setupWebSocket(wsOpt, 'opt');
+
+                processor.onaudioprocess = (e) => {
+                    if (!isRecording) return;
+                    const inputData = e.inputBuffer.getChannelData(0);
+                    // Convert float32 to bytes
+                    const buffer = new Float32Array(inputData);
+                    
+                    if (wsStd.readyState === WebSocket.OPEN) wsStd.send(buffer);
+                    if (wsOpt.readyState === WebSocket.OPEN) wsOpt.send(buffer);
+                };
+
+                input.connect(processor);
+                processor.connect(audioContext.destination);
+
+                document.getElementById('startBtn').disabled = true;
+                document.getElementById('stopBtn').disabled = false;
+                isRecording = true;
+
+            } catch (err) {
+                console.error("Error starting:", err);
+                alert("Microphone access denied or error occurred.");
+            }
+        }
+
+        function setupWebSocket(ws, type) {
+            const statusEl = document.getElementById(`status-${type}`);
+            const transcriptEl = document.getElementById(`transcript-${type}`);
+            const latencyEl = document.getElementById(`latency-${type}`);
+            
+            ws.onopen = () => {
+                statusEl.textContent = "Connected";
+                statusEl.className = "status connected";
+            };
+            
+            ws.onclose = () => {
+                statusEl.textContent = "Disconnected";
+                statusEl.className = "status disconnected";
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                transcriptEl.textContent = data.text;
+                latencyEl.textContent = data.latency.toFixed(1);
+                
+                // Update chart only when we have data from both (simplified sync)
+                if (type === 'opt') {
+                    // Grab current value from std DOM
+                    const stdLat = parseFloat(document.getElementById('latency-std').textContent) || 0;
+                    updateChart(stdLat, data.latency);
+                }
+            };
+        }
+
+        function stopRecording() {
+            isRecording = false;
+            if (processor) {
+                processor.disconnect();
+                input.disconnect();
+            }
+            if (audioContext) audioContext.close();
+            if (wsStd) wsStd.close();
+            if (wsOpt) wsOpt.close();
+
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+        }
+
+        document.getElementById('startBtn').onclick = startRecording;
+        document.getElementById('stopBtn').onclick = stopRecording;
+    </script>
+</body>
+</html>

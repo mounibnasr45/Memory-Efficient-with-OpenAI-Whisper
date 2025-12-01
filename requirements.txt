@@ -1,0 +1,11 @@
+openai-whisper
+transformers
+torch
+numpy
+fastapi
+uvicorn
+websockets
+sounddevice
+scipy
+nest_asyncio
+jupyter
