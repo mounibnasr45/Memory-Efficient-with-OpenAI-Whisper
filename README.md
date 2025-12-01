@@ -1,10 +1,10 @@
-# Memory-Efficient Whisper Streaming: Real-Time ASR Optimization 🚀
+# Memory-Efficient Whisper Streaming: Real-Time ASR Optimization 
 
 | Status | Model | Framework | Architecture |
 | :--- | :--- | :--- | :--- |
 | Active | OpenAI Whisper | Hugging Face Transformers, PyTorch | Sliding Window, KV Caching |
 
-## 💡 Overview
+##  Overview
 
 This project delivers a robust, real-time Speech-to-Text (ASR) streaming solution built upon OpenAI's Whisper model. It successfully tackles the primary challenges of standard ASR models in a continuous streaming environment: unbounded memory growth and increasing inference latency. By integrating a Sliding Window Attention mechanism with native Key-Value (KV) Caching, we ensure both constant memory footprint and stable, low-latency transcription performance, making it production-ready for long-duration applications.
 
